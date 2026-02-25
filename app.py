@@ -1,61 +1,88 @@
 import streamlit as st
-from src.document_processor import build_xml_context_parallel
+from src.vector_store import init_chromadb, get_or_create_collection, search_documents_dynamic
 from src.bedrock_client import invoke_claude
 
-st.set_page_config(page_title="ChatBot Long-Context", layout="wide", page_icon="📚")
+# Configuración de página
+st.set_page_config(page_title="ChatBot Long-Context + RAG", layout="wide", page_icon="🏢")
 
-st.title("LLM Claude Opus 4.6 - Long Context")
-st.caption("Arquitectura sin RAG: Procesamiento masivo de contexto completo con Prompt Caching en AWS Bedrock")
+# 1. Conexión a Base de Datos (Caché de Streamlit)
+# Usamos @st.cache_resource para que Streamlit no abra múltiples conexiones a ChromaDB,
+# evitando bloqueos de archivo (Database Locks).
+@st.cache_resource
+def get_database_collection():
+    client = init_chromadb("/app/chroma_db")
+    return get_or_create_collection(client)
 
-# Inicializar estados de memoria
+try:
+    collection = get_database_collection()
+except Exception as e:
+    st.error(f"Error conectando a ChromaDB. Asegúrate de que el volumen esté montado. Detalles: {e}")
+    st.stop()
+
+st.title("🏢 Chat Corporativo Híbrido RAG + Long Content")
+st.caption("Búsqueda Vectorial Masiva + Claude 4.6 Long-Context con Prompt Caching")
+
+# 2. Inicializar estados de memoria
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "xml_context" not in st.session_state:
     st.session_state.xml_context = None
+if "current_topic" not in st.session_state:
+    st.session_state.current_topic = None
 
-# Sidebar: Carga y procesamiento
+# 3. Sidebar: Búsqueda y Anclaje de Contexto
 with st.sidebar:
-    st.header("1. Carga de Corpus")
-    uploaded_files = st.file_uploader(
-        "Sube PDFs o TXTs", 
-        type=['pdf', 'txt'], 
-        accept_multiple_files=True
-    )
+    st.header("🔍 1. Anclar Contexto")
+    st.markdown("Busca un tema amplio. Extraeremos la información de los **4.5 GB** y la congelaremos para chatear usando caché.")
     
-    if st.button("Procesar y Cargar a Memoria"):
-        if uploaded_files:
-            # Creamos un placeholder visual para la barra de progreso
-            progress_text = "Preparando procesamiento en paralelo..."
-            my_bar = st.progress(0, text=progress_text)
-            
-            # Pasamos la barra a la función
-            st.session_state.xml_context = build_xml_context_parallel(uploaded_files, progress_bar=my_bar)
-            
-            # Limpiamos el historial de chat si se cargan nuevos documentos
-            st.session_state.messages = [] 
-            
-            my_bar.empty() # Borramos la barra al terminar
-            st.success(f"¡{len(uploaded_files)} documentos indexados y listos en memoria!")
+    tema_busqueda = st.text_input("Tema de investigación:", placeholder="Ej. Proyectos de Alfredo Martinez...")
+    
+    if st.button("Buscar y Extraer Contexto"):
+        if tema_busqueda:
+            with st.spinner("Buscando en 1,370 documentos..."):
+                # Realizamos la búsqueda dinámica
+                docs_recuperados = search_documents_dynamic(collection, tema_busqueda)
+                
+                if docs_recuperados:
+                    # Construimos el XML masivo
+                    xml_out = "<documentos>\n"
+                    for idx, doc in enumerate(docs_recuperados, start=1):
+                        origen = doc.get('origen', 'Desconocido')
+                        texto = doc.get('texto', '')
+                        xml_out += f'  <documento id="{idx}" origen="{origen}">\n'
+                        xml_out += f'    {texto}\n'
+                        xml_out += f'  </documento>\n'
+                    xml_out += "</documentos>"
+                    
+                    # Guardamos en el estado de la sesión
+                    st.session_state.xml_context = xml_out
+                    st.session_state.current_topic = tema_busqueda
+                    st.session_state.messages = [] # Limpiamos el chat anterior
+                    
+                    st.success(f"¡Éxito! {len(docs_recuperados)} fragmentos anclados a la memoria de Claude.")
+                else:
+                    st.warning("No se encontró información que supere el umbral de relevancia.")
         else:
-            st.warning("Debes subir al menos un archivo.")
+            st.warning("Ingresa un tema para buscar.")
 
-# Main: Historial de Chat
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# 4. Main: Interfaz de Chat
+if st.session_state.xml_context:
+    st.info(f"📌 **Contexto Anclado:** Información relacionada con *'{st.session_state.current_topic}'*")
+    
+    # Mostrar historial de chat
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
-# Main: Input de usuario y ejecución
-if prompt := st.chat_input("Consulta sobre tus documentos..."):
-    if not st.session_state.xml_context:
-        st.error("Por favor, procesa los documentos en la barra lateral primero.")
-    else:
-        # 1. Imprimir y guardar pregunta del usuario
+    # Input de usuario
+    if prompt := st.chat_input("Pregunta sobre este contexto..."):
+        # Mostrar pregunta
         st.chat_message("user").markdown(prompt)
         st.session_state.messages.append({"role": "user", "content": prompt})
 
-        # 2. Llamada a Bedrock
+        # Llamar a Bedrock
         with st.chat_message("assistant"):
-            with st.spinner("Analizando biblioteca documental..."):
+            with st.spinner("Analizando contexto anclado..."):
                 try:
                     respuesta, c_write, c_read = invoke_claude(
                         st.session_state.messages, 
@@ -65,7 +92,8 @@ if prompt := st.chat_input("Consulta sobre tus documentos..."):
                     st.markdown(respuesta)
                     st.caption(f"⚡ **Tokens Cacheados:** `Escritos: {c_write}` | `Leídos (con descuento): {c_read}`")
                     
-                    # 3. Guardar respuesta en el historial
                     st.session_state.messages.append({"role": "assistant", "content": respuesta})
                 except Exception as e:
                     st.error(f"Error de conexión con AWS Bedrock: {str(e)}")
+else:
+    st.info("👈 Comienza buscando un tema de investigación en la barra lateral para anclar los documentos relevantes.")
