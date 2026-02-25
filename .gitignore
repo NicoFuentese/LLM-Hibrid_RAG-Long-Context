@@ -4,7 +4,10 @@ __pycache__/
 *$py.class
 
 #data
-/data
+/data/*
+!data/.gitkeep
+/chroma_db/*
+!chroma_db/.gitkeep
 
 # C extensions
 *.so

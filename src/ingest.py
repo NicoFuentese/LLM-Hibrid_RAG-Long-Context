@@ -94,7 +94,7 @@ def process_directory():
                 
                 # 3. Guardar en ChromaDB por lotes (por archivo)
                 if ids:
-                    collection.add(
+                    collection.upsert(
                         documents=documents,
                         embeddings=embeddings,
                         metadatas=metadatas,
