@@ -1,0 +1,15 @@
+services:
+  llm-rag-long-content:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-rag-long-context-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    volumes:
+      # Sincronizamos las carpetas locales con el interior del contenedor
+      - ./data:/app/data:ro         # ro = Read Only
+      - ./chroma_db:/app/chroma_db  # Lectura/Escritura para la Base de Datos Vectorial
+    restart: unless-stopped
