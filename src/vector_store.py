@@ -2,6 +2,7 @@ import boto3
 import json
 import os
 import chromadb
+import re
 from chromadb.config import Settings
 from dotenv import load_dotenv
 
@@ -44,45 +45,74 @@ def get_or_create_collection(client: chromadb.PersistentClient, collection_name:
     """Obtiene o crea la colección ('tabla') donde vivirán los 1,370 documentos."""
     return client.get_or_create_collection(name=collection_name)
 
-def search_documents_dynamic(collection, query: str, max_tokens: int = 900_000) -> list:
+def search_documents_dynamic(collection, query: str, max_tokens: int = 150_000) -> list:
     """
-    Búsqueda dinámica que aprovecha el Long-Context. 
-    Extrae todos los documentos relevantes hasta casi llenar la ventana de Claude.
+    Búsqueda Híbrida: Combina coincidencia exacta de palabras clave 
+    (si se usan comillas) con búsqueda semántica masiva.
     """
-    # 1. Convertimos la pregunta del usuario a un vector
-    query_embedding = get_embedding(query)
-    
-    # 2. Buscamos un número masivo (ej. 300 fragmentos)
-    # ChromaDB usa distancia L2 (menor es más similar) o Coseno.
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        n_results=300 
-    )
-    
     retrieved_docs = []
+    seen_ids = set() # Para no duplicar si ambas búsquedas encuentran lo mismo
     current_chars = 0
     CHARS_PER_TOKEN = 3.5
     MAX_CHARS = max_tokens * CHARS_PER_TOKEN
+
+    # --- 1. BÚSQUEDA EXACTA (El "Laser") ---
+    # Buscamos si el usuario puso algo entre comillas dobles: ej. "Alfredo Martinez"
+    palabras_exactas = re.findall(r'"([^"]*)"', query)
     
-    if results['documents'] and len(results['documents'][0]) > 0:
-        for i in range(len(results['documents'][0])):
-            doc_text = results['documents'][0][i]
-            doc_metadata = results['metadatas'][0][i]
-            distance = results['distances'][0][i] # Nivel de similitud
-            
-            # Filtro de Relevancia: Ignorar basura (Ajustar el umbral según el modelo de embeddings)
-            # En distancia L2, valores más bajos son mejores. 
-            if distance > 1.2: 
-                continue 
+    if palabras_exactas:
+        for palabra in palabras_exactas:
+            try:
+                # ChromaDB busca literalmente este texto en los documentos
+                exact_results = collection.get(
+                    where_document={"$contains": palabra}
+                )
                 
-            # Control del límite de tokens para no explotar Bedrock
-            if current_chars + len(doc_text) > MAX_CHARS:
-                break # Si el siguiente doc supera el millón de tokens, nos detenemos
-                
-            retrieved_docs.append({
-                "texto": doc_text,
-                "origen": doc_metadata.get("source", "Desconocido")
-            })
-            current_chars += len(doc_text)
-            
+                if exact_results and exact_results['documents']:
+                    for i in range(len(exact_results['documents'])):
+                        doc_id = exact_results['ids'][i]
+                        doc_text = exact_results['documents'][i]
+                        doc_metadata = exact_results['metadatas'][i]
+                        
+                        if doc_id not in seen_ids:
+                            retrieved_docs.append({
+                                "id": doc_id,
+                                "texto": doc_text,
+                                "origen": doc_metadata.get("source", "Desconocido")
+                            })
+                            seen_ids.add(doc_id)
+                            current_chars += len(doc_text)
+            except Exception as e:
+                print(f"Búsqueda exacta falló para '{palabra}': {e}")
+
+    # --- 2. BÚSQUEDA SEMÁNTICA (La "Red de Arrastre") ---
+    if current_chars < MAX_CHARS:
+        query_embedding = get_embedding(query)
+        
+        # Subimos radicalmente de 30 a 150 resultados para aprovechar Claude Long-Context
+        semantic_results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=150 
+        )
+        
+        if semantic_results and 'documents' in semantic_results and semantic_results['documents']:
+            if len(semantic_results['documents'][0]) > 0:
+                for i in range(len(semantic_results['documents'][0])):
+                    doc_id = semantic_results['ids'][0][i]
+                    doc_text = semantic_results['documents'][0][i]
+                    doc_metadata = semantic_results['metadatas'][0][i]
+                    
+                    # Evitamos agregar documentos que ya entraron por la búsqueda exacta
+                    if doc_id not in seen_ids:
+                        if current_chars + len(doc_text) > MAX_CHARS:
+                            break 
+                            
+                        retrieved_docs.append({
+                            "id": doc_id,
+                            "texto": doc_text,
+                            "origen": doc_metadata.get("source", "Desconocido")
+                        })
+                        seen_ids.add(doc_id)
+                        current_chars += len(doc_text)
+                        
     return retrieved_docs

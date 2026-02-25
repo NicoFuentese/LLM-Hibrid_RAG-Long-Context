@@ -2,12 +2,9 @@ import streamlit as st
 from src.vector_store import init_chromadb, get_or_create_collection, search_documents_dynamic
 from src.bedrock_client import invoke_claude
 
-# Configuración de página
-st.set_page_config(page_title="ChatBot Long-Context + RAG", layout="wide", page_icon="🏢")
+st.set_page_config(page_title="Enterprise AI - 4.5GB", layout="wide", page_icon="🧠")
 
-# 1. Conexión a Base de Datos (Caché de Streamlit)
-# Usamos @st.cache_resource para que Streamlit no abra múltiples conexiones a ChromaDB,
-# evitando bloqueos de archivo (Database Locks).
+# 1. Conexión a Base de Datos
 @st.cache_resource
 def get_database_collection():
     client = init_chromadb("/app/chroma_db")
@@ -16,84 +13,102 @@ def get_database_collection():
 try:
     collection = get_database_collection()
 except Exception as e:
-    st.error(f"Error conectando a ChromaDB. Asegúrate de que el volumen esté montado. Detalles: {e}")
+    st.error(f"Error conectando a ChromaDB. Detalles: {e}")
     st.stop()
 
-st.title("🏢 Chat Corporativo Híbrido RAG + Long Content")
-st.caption("Búsqueda Vectorial Masiva + Claude 4.6 Long-Context con Prompt Caching")
+#verificacion de base de datos
+try:
+    collection = get_database_collection()
+    # NUEVO: Bloque de diagnóstico
+    total_chunks = collection.count()
+    st.sidebar.success(f"📦 Base de datos activa: {total_chunks} fragmentos indexados.")
+except Exception as e:
+    st.error(f"Error conectando a ChromaDB. Detalles: {e}")
+    st.stop()
+
+st.title("🧠 IA Corporativa - Acceso Total (4.5 GB)")
+st.caption("RAG Dinámico: Haz cualquier pregunta. La IA buscará en tus carpetas en tiempo real.")
 
 # 2. Inicializar estados de memoria
 if "messages" not in st.session_state:
     st.session_state.messages = []
+# doc_memory guardará los textos únicos que la IA va leyendo durante la conversación
+if "chunk_ids_memory" not in st.session_state:
+    st.session_state.chunk_ids_memory = set() 
 if "xml_context" not in st.session_state:
-    st.session_state.xml_context = None
-if "current_topic" not in st.session_state:
-    st.session_state.current_topic = None
+    st.session_state.xml_context = "<documentos>\n"
 
-# 3. Sidebar: Búsqueda y Anclaje de Contexto
-with st.sidebar:
-    st.header("🔍 1. Anclar Contexto")
-    st.markdown("Busca un tema amplio. Extraeremos la información de los **4.5 GB** y la congelaremos para chatear usando caché.")
+# 3. Main: Historial de Chat
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# 4. Main: Lógica de Chat y Búsqueda Dinámica
+if prompt := st.chat_input("Pregunta sobre cualquier documento, persona o proyecto..."):
     
-    tema_busqueda = st.text_input("Tema de investigación:", placeholder="Ej. Proyectos de Alfredo Martinez...")
-    
-    if st.button("Buscar y Extraer Contexto"):
-        if tema_busqueda:
-            with st.spinner("Buscando en 1,370 documentos..."):
-                # Realizamos la búsqueda dinámica
-                docs_recuperados = search_documents_dynamic(collection, tema_busqueda)
+    # Mostrar pregunta del usuario
+    st.chat_message("user").markdown(prompt)
+    st.session_state.messages.append({"role": "user", "content": prompt})
+
+    with st.chat_message("assistant"):
+        # PASO A: Buscar en ChromaDB automáticamente
+        with st.spinner("Buscando en 4.5 GB de datos..."):
+            # Traemos un volumen moderado (ej. 100k tokens) para ser rápidos en cada turno
+            docs_recuperados = search_documents_dynamic(collection, prompt, max_tokens=100_000)
+            
+            nuevos_docs_agregados = 0
+            
+            # PASO B: Actualizar la Memoria Acumulativa (Deduplicación estricta por ID)
+            if docs_recuperados:
+                # Quitamos la etiqueta de cierre temporalmente para agregar más info
+                st.session_state.xml_context = st.session_state.xml_context.replace("</documentos>", "")
                 
-                if docs_recuperados:
-                    # Construimos el XML masivo
-                    xml_out = "<documentos>\n"
-                    for idx, doc in enumerate(docs_recuperados, start=1):
-                        origen = doc.get('origen', 'Desconocido')
-                        texto = doc.get('texto', '')
-                        xml_out += f'  <documento id="{idx}" origen="{origen}">\n'
-                        xml_out += f'    {texto}\n'
-                        xml_out += f'  </documento>\n'
-                    xml_out += "</documentos>"
+                for doc in docs_recuperados:
+                    chunk_id = doc.get('id')
+                    texto = doc.get('texto', '')
+                    origen = doc.get('origen', 'Desconocido')
+
+                    # BARRERA DE DEDUPLICACIÓN: Si el ID ya existe, lo ignoramos por completo
+                    if chunk_id not in st.session_state.chunk_ids_memory:
+                        st.session_state.chunk_ids_memory.add(chunk_id)
+
+                        st.session_state.xml_context += f'  <documento id="{chunk_id}" origen="{origen}">\n'
+                        st.session_state.xml_context += f'    {texto}\n'
+                        st.session_state.xml_context += f'  </documento>\n'
+                        nuevos_docs_agregados += 1
                     
-                    # Guardamos en el estado de la sesión
-                    st.session_state.xml_context = xml_out
-                    st.session_state.current_topic = tema_busqueda
-                    st.session_state.messages = [] # Limpiamos el chat anterior
-                    
-                    st.success(f"¡Éxito! {len(docs_recuperados)} fragmentos anclados a la memoria de Claude.")
+                st.session_state.xml_context += "</documentos>"
+
+        # PASO C: Consultar a Claude 4.6
+        with st.spinner(f"Analizando contexto (Leyendo {nuevos_docs_agregados} documentos nuevos)..."):
+            try:
+                # Si no hay NADA en memoria aún, le avisamos al modelo
+                if len(st.session_state.chunk_ids_memory) == 0:
+                    contexto_a_enviar = "<documentos>No se encontró información relevante para esta pregunta.</documentos>"
                 else:
-                    st.warning("No se encontró información que supere el umbral de relevancia.")
-        else:
-            st.warning("Ingresa un tema para buscar.")
+                    contexto_a_enviar = st.session_state.xml_context
 
-# 4. Main: Interfaz de Chat
-if st.session_state.xml_context:
-    st.info(f"📌 **Contexto Anclado:** Información relacionada con *'{st.session_state.current_topic}'*")
-    
-    # Mostrar historial de chat
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+                respuesta, c_write, c_read = invoke_claude(
+                    st.session_state.messages, 
+                    contexto_a_enviar
+                )
+                
+                st.markdown(respuesta)
+                
+                # Feedback visual de operaciones
+                st.caption(f"🔍 **Búsqueda:** {nuevos_docs_agregados} fragmentos nuevos encontrados. | ⚡ **Caché:** `Escritos: {c_write}` `Leídos: {c_read}`")
+                
+                st.session_state.messages.append({"role": "assistant", "content": respuesta})
+                
+            except Exception as e:
+                st.error(f"Error de conexión con AWS Bedrock: {str(e)}")
 
-    # Input de usuario
-    if prompt := st.chat_input("Pregunta sobre este contexto..."):
-        # Mostrar pregunta
-        st.chat_message("user").markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # Llamar a Bedrock
-        with st.chat_message("assistant"):
-            with st.spinner("Analizando contexto anclado..."):
-                try:
-                    respuesta, c_write, c_read = invoke_claude(
-                        st.session_state.messages, 
-                        st.session_state.xml_context
-                    )
-                    
-                    st.markdown(respuesta)
-                    st.caption(f"⚡ **Tokens Cacheados:** `Escritos: {c_write}` | `Leídos (con descuento): {c_read}`")
-                    
-                    st.session_state.messages.append({"role": "assistant", "content": respuesta})
-                except Exception as e:
-                    st.error(f"Error de conexión con AWS Bedrock: {str(e)}")
-else:
-    st.info("👈 Comienza buscando un tema de investigación en la barra lateral para anclar los documentos relevantes.")
+# Sidebar informativo (Opcional, solo para que veas qué está pasando por debajo)
+with st.sidebar:
+    st.header("📊 Estado de la Sesión")
+    st.metric("Documentos en Memoria", len(st.session_state.chunk_ids_memory))
+    if st.button("Limpiar Memoria y Chat"):
+        st.session_state.messages = []
+        st.session_state.chunk_ids_memory = set()
+        st.session_state.xml_context = "<documentos>\n"
+        st.rerun()
