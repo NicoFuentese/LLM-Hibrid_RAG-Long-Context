@@ -9,7 +9,7 @@ MAX_CONTEXT_TOKENS = 950000
 CHARS_PER_TOKEN = 3.5
 MAX_CONTEXT_CHARS = int(MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN)
 
-st.set_page_config(page_title="Enterprise AI - 4.5GB", layout="wide", page_icon="🧠")
+st.set_page_config(page_title="Enterprise AI 1M tocken - 4.5GB", layout="wide", page_icon="🧠")
 
 # 1. Conexión a Base de Datos
 @st.cache_resource
