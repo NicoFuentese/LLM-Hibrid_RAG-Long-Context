@@ -55,10 +55,10 @@ El sistema se divide en dos fases lógicas completamente desacopladas para garan
 | Característica | Fase 1: Ingesta de Datos (Offline) | Fase 2: Consulta y Chat (Online) |
 | :--- | :--- | :--- |
 | **Objetivo** | Leer los PDFs originales, convertirlos a matemática (Vectores) y guardarlos en la base de datos. | Recibir preguntas del usuario, buscar en la BD, inyectar el contexto a la IA y mostrar la respuesta. |
-| **Perfil Responsable** | 🛠️ Administrador de Sistemas / Data Engineer | 👔 Usuario de Negocio / Analista / Gerencia |
+| **Perfil Responsable** | Administrador de Sistemas / Data Engineer | Usuario de Negocio / Analista / Gerencia |
 | **Frecuencia** | **Una sola vez** (o solo cuando se agregan documentos nuevos a la carpeta). | Múltiples veces al día, bajo demanda. |
 | **Tecnologías** | Python, PyMuPDF, Amazon Titan V2, ChromaDB. | Streamlit (UI), Boto3, Claude Opus 4.6 / DeepSeek R1. |
-| **Velocidad** | Horas (dependiendo del volumen, ej. 4.5 GB). | Segundos (Respuesta en Streaming). |
+| **Velocidad** | Horas (dependiendo del volumen, ej. 5 GB). | Segundos (Respuesta en Streaming). |
 
 ## Estructura del Proyecto
 
