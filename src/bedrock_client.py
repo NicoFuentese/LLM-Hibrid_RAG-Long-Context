@@ -48,6 +48,7 @@ def invoke_claude(messages: list, xml_documents: str):
     
     payload = {
         "anthropic_version": "bedrock-2023-05-31",
+        "anthropic_beta": ["context-1m-2025-08-07"], #llave de long-context
         "max_tokens": 4096,
         "temperature": 0.1, # Muy baja para evitar alucinaciones
         "system": system_block,
