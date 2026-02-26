@@ -4,3 +4,4 @@ PyMuPDF
 python-dotenv
 chromadb
 tenacity
+openai
