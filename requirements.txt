@@ -3,3 +3,4 @@ streamlit
 PyMuPDF
 python-dotenv
 chromadb
+tenacity
