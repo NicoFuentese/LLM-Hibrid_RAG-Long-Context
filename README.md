@@ -3,6 +3,19 @@
 ## Descripcion
 Una solución de Inteligencia Artificial corporativa diseñada para procesar, buscar y conversar con repositorios masivos de conocimiento (probado con 4.5 GB de documentos). Combina la precisión de la búsqueda matemática con la capacidad analítica de los modelos fundacionales más avanzados del mundo (AWS Bedrock).
 
+### Requisitos previos y versiones del sistema utilizados
+Para garantizar la estabilidad y replicabilidad en producción, el entorno requiere las siguientes especificaciones:
+
+* **Sistema Operativo Base:** Ubuntu 24.04.3 LTS (GNU/Linux 6.14.0-1015-aws x86_64).
+* Docker Engine (>= 24.0), Docker Compose (>= 2.20).
+* Python 3.11 o superior (ejecutándose dentro del contenedor).
+* **Core Libraries (Python):** `streamlit==1.32.0`, `chromadb==0.4.24`, `boto3>=1.34.0`, `tenacity>=8.2.3`, `PyMuPDF`, `python-dotenv`.
+* **Modelos AWS Bedrock Requeridos:**
+    * *Amazon Titan Text Embeddings v2* (`amazon.titan-embed-text-v2:0`)
+    * *Anthropic Claude Opus* (`us.anthropic.claude-opus-4-6-v1`)
+    * *DeepSeek R1* (`us.deepseek.r1-v1:0`)
+
+
 ## Que hace el software?
 En las organizaciones, miles de horas se pierden buscando cláusulas en contratos, verificando normativas en manuales o cruzando datos entre decenas de reportes PDF. Este software transforma su repositorio estático de documentos en un experto corporativo interactivo.
 
@@ -81,18 +94,6 @@ llm-rag-long-content/
     └── deepseek_client.py  # Conector para DeepSeek R1 (Converse API y extracción de <think>).
 ```
 ## Intalacion y ejecucion
-
-### Requisitos previos y versiones del sistema utilizados
-Para garantizar la estabilidad y replicabilidad en producción, el entorno requiere las siguientes especificaciones:
-
-* **Sistema Operativo Base:** Ubuntu 24.04.3 LTS (GNU/Linux 6.14.0-1015-aws x86_64).
-* Docker Engine (>= 24.0), Docker Compose (>= 2.20).
-* Python 3.11 o superior (ejecutándose dentro del contenedor).
-* **Core Libraries (Python):** `streamlit==1.32.0`, `chromadb==0.4.24`, `boto3>=1.34.0`, `tenacity>=8.2.3`, `PyMuPDF`, `python-dotenv`.
-* **Modelos AWS Bedrock Requeridos:**
-    * *Amazon Titan Text Embeddings v2* (`amazon.titan-embed-text-v2:0`)
-    * *Anthropic Claude Opus* (`us.anthropic.claude-opus-4-6-v1`)
-    * *DeepSeek R1* (`us.deepseek.r1-v1:0`)
 
 ### 1. Configuracion del entorno y credenciales [Perfil DevOps / Administrador TI]
 Crea un archivo llamado .env en la raíz del proyecto y agrega tus credenciales de servicio:
